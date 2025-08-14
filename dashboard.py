@@ -62,7 +62,7 @@ with tab1:
     st.header('Exploratory Data Analysis')
 
     st.header('Filtered Data')
-    st.write(df_filtered)
+    st.dataframe(df_filtered.head(1000), use_container_width=True)
 
     # Visualizations
     st.header('Data Visualizations')
@@ -133,48 +133,49 @@ with tab2:
     Please select the features for the flight you want to predict.
     """)
 
-    # Train the model
-    @st.cache_resource
-    def train_model():
-        # Select features and target
-        features = ['airline', 'source_city', 'destination_city', 'stops', 'class', 'duration', 'days_left']
-        target = 'price'
+   # ---------- REPLACE FROM HERE ----------
+@st.cache_resource(show_spinner="Training model (only the first time)...")
+def train_model():
+    # 1) Load data ONCE inside the cache
+    df = pd.read_csv('airlines_flights_data.csv')
+    df.drop_duplicates(inplace=True)
+    if 'index' in df.columns:
+        df.drop(columns=['index'], inplace=True)
+    df['route'] = df['source_city'] + ' - ' + df['destination_city']
 
-        X = df[features]
-        y = df[target]
+    # 2) Train the model
+    features = ['airline', 'source_city', 'destination_city',
+                'stops', 'class', 'duration', 'days_left']
+    target = 'price'
+    X, y = df[features], df[target]
 
-        # Identify categorical and numerical features
-        categorical_features = ['airline', 'source_city', 'destination_city', 'stops', 'class']
-        numerical_features = ['duration', 'days_left']
+    cat_cols = ['airline', 'source_city', 'destination_city', 'stops', 'class']
+    num_cols = ['duration', 'days_left']
 
-        # Create a preprocessor for categorical features
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ('num', 'passthrough', numerical_features),
-                ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
-            ])
+    pipe = Pipeline([
+        ('prep', ColumnTransformer([
+            ('num', 'passthrough', num_cols),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), cat_cols)
+        ])),
+        ('reg', RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1))
+    ])
+    pipe.fit(X, y)
+    return pipe, df          # <-- return model + data
 
-        # Create a pipeline with the preprocessor and the model
-        model = Pipeline(steps=[('preprocessor', preprocessor),
-                              ('regressor', RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1))])
+model, df = train_model()    # single line to call it
 
-        # Train the model
-        model.fit(X, y)
-        return model
 
-    model = train_model()
+# User input for prediction
+pred_airline = st.selectbox('Airline', options=df['airline'].unique())
+pred_source_city = st.selectbox('Source City', options=df['source_city'].unique())
+pred_destination_city = st.selectbox('Destination City', options=df['destination_city'].unique())
+pred_stops = st.selectbox('Stops', options=df['stops'].unique())
+pred_class = st.selectbox('Class', options=df['class'].unique())
+pred_duration = st.number_input('Duration (hours)', min_value=0.5, max_value=50.0, value=2.0, step=0.5)
+pred_days_left = st.number_input('Days Left to Departure', min_value=1, max_value=50, value=15, step=1)
 
-    # User input for prediction
-    pred_airline = st.selectbox('Airline', options=df['airline'].unique())
-    pred_source_city = st.selectbox('Source City', options=df['source_city'].unique())
-    pred_destination_city = st.selectbox('Destination City', options=df['destination_city'].unique())
-    pred_stops = st.selectbox('Stops', options=df['stops'].unique())
-    pred_class = st.selectbox('Class', options=df['class'].unique())
-    pred_duration = st.number_input('Duration (hours)', min_value=0.5, max_value=50.0, value=2.0, step=0.5)
-    pred_days_left = st.number_input('Days Left to Departure', min_value=1, max_value=50, value=15, step=1)
-
-    # Create a dataframe from the user input
-    input_data = pd.DataFrame({
+# Create a dataframe from the user input
+input_data = pd.DataFrame({
         'airline': [pred_airline],
         'source_city': [pred_source_city],
         'destination_city': [pred_destination_city],
@@ -184,7 +185,7 @@ with tab2:
         'days_left': [pred_days_left]
     })
 
-    # Predict the price
-    if st.button('Predict Price'):
+# Predict the price
+if st.button('Predict Price'):
         prediction = model.predict(input_data)
         st.success(f'The predicted price of the flight is: ₹ {prediction[0]:.2f}')
